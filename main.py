@@ -9,9 +9,8 @@ class SplitWiseGroup:
         self.NameOfGroup = name_of_group
         self.ListOfMembers: List[str] = []
         self.ListOfTransaction: List[tuple] = []
+        self.ListOfDebts: List[tuple] = []
         self.SettlementMatrix = None
-        self.SettlementMatrixFinal = None
-        self.debts_simplified: bool = True
 
     def __repr__(self):
         return (f"Group `{self.NameOfGroup}` with {len(self.ListOfMembers)} members"
@@ -45,7 +44,6 @@ class SplitWiseGroup:
                     ), member_index, axis=1
                 )
                 self.ListOfMembers.remove(member)
-                self.debts_simplified = False
 
     def add_transaction(
             self,
@@ -77,7 +75,7 @@ class SplitWiseGroup:
             member_index = self.ListOfMembers.index(member)
             self.SettlementMatrix[member_index, who_paid_index] += amount * proportion
             self.SettlementMatrix[who_paid_index, member_index] -= amount * proportion
-        self.debts_simplified = False
+        self.update_list_of_debts()
 
     def remove_transaction(self, description: str):
         transaction_found = None
@@ -97,12 +95,12 @@ class SplitWiseGroup:
                 member_index = self.ListOfMembers.index(member)
                 self.SettlementMatrix[member_index, who_paid_index] -= amount * proportion
                 self.SettlementMatrix[who_paid_index, member_index] += amount * proportion
-            self.debts_simplified = False
             print(f"Transaction `{description}` successfully removed")
+        self.update_list_of_debts()
 
-    def simplify_debts(self):
+    def update_list_of_debts(self):
         total_debts = np.round(self.SettlementMatrix * 100).astype(int).sum(axis=1)
-        self.SettlementMatrixFinal = np.zeros(self.SettlementMatrix.shape, dtype=int)
+        self.ListOfDebts = []
         while total_debts.any():
             min_value = total_debts.min()
             max_value = total_debts.max()
@@ -110,10 +108,11 @@ class SplitWiseGroup:
             max_index = np.argmax(total_debts)
             total_debts[min_index] = min(min_value + max_value, 0)
             total_debts[max_index] = max(min_value + max_value, 0)
-            self.SettlementMatrixFinal[min_index, max_index] -= min(max_value, -min_value)
-            self.SettlementMatrixFinal[max_index, min_index] += min(max_value, -min_value)
-        self.SettlementMatrixFinal = self.SettlementMatrixFinal.astype(float) / 100
-        self.debts_simplified = True
+            self.ListOfDebts.append((
+                self.ListOfMembers[max_index],
+                self.ListOfMembers[min_index],
+                round(min(max_value, -min_value) / 100, 2)
+            ))
 
     def display_group(self):
         print(f"Group: {self.NameOfGroup}")
@@ -140,19 +139,13 @@ class SplitWiseGroup:
         print()
 
     def display_debts(self):
-        if not self.debts_simplified:
-            self.simplify_debts()
-        n = len(self.ListOfMembers)
-        if not self.SettlementMatrixFinal.any():
-            print("Nobody owes anything to anyone else.")
+        if not self.ListOfDebts:
+            print(f"All debts are settled.")
         else:
-            for ind_1 in range(n):
-                for ind_2 in range(n):
-                    if self.SettlementMatrixFinal[ind_1, ind_2] > 0:
-                        print(
-                            f"* {self.ListOfMembers[ind_1]} owes {self.SettlementMatrixFinal[ind_1, ind_2]}{self.CURRENCY}"
-                            f" to {self.ListOfMembers[ind_2]}"
-                        )
+            print("List of debts:")
+            for who_owes, owed_by, amount in self.ListOfDebts:
+                print(f"* {who_owes} owes {amount}{self.CURRENCY} to {owed_by}")
+        print()
 
     def settle_up(self, who_owes: str, owed_by: str, amount: float):
         # Assertions
@@ -162,5 +155,10 @@ class SplitWiseGroup:
         owed_by_index = self.ListOfMembers.index(owed_by)
         self.SettlementMatrix[who_owes_index, owed_by_index] -= amount
         self.SettlementMatrix[owed_by_index, who_owes_index] += amount
-        self.debts_simplified = False
-        print(f"{who_owes} paid {amount}{self.CURRENCY} to {owed_by}")
+        print(f"{who_owes} paid {round(amount, 2)}{self.CURRENCY} to {owed_by}")
+        self.update_list_of_debts()
+
+    def forgive_all_debts(self):
+        self.ListOfDebts = []
+        number_of_members = len(self.ListOfMembers)
+        self.SettlementMatrix = np.zeros((number_of_members, number_of_members))
